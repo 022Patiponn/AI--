@@ -1,0 +1,16 @@
+# ไลบรารีหลักที่ใช้รันเว็บแอป Streamlit
+streamlit==1.64.0
+joblib==1.5.3
+pandas==2.3.3
+numpy==2.3.5
+
+# scikit-learn: โมเดล Logistic Regression / Neural Network ภายในไฟล์ .pkcls
+# ถูกฝึกด้วย scikit-learn เวอร์ชัน 1.5.2 (Orange3 ห่อโมเดลนี้ไว้อีกชั้นหนึ่ง)
+# แนะนำให้ใช้เวอร์ชันนี้เพื่อลดคำเตือน InconsistentVersionWarning
+scikit-learn==1.8.0
+
+# Orange3: จำเป็นต้องติดตั้ง เพราะไฟล์ .pkcls ที่ Save Model จาก Orange
+# เป็นอ็อบเจ็กต์คลาสของ Orange (Orange.classification.*, Orange.tree.*)
+# หากไม่ติดตั้งไลบรารีนี้ joblib.load()/pickle.load() จะโหลดไฟล์ไม่ได้
+# (ติดตั้งครั้งแรกอาจใช้เวลาสักครู่ เพราะมีไลบรารีย่อยจำนวนมาก)
+Orange3==3.40.0
