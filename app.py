@@ -5,25 +5,10 @@
  แอปนี้โหลดโมเดล Linear Regression ที่ฝึกไว้จาก Orange Data Mining (ไฟล์ .pkcls)
  แล้วให้ผู้ใช้กรอกข้อมูลทางการเงินของตนเอง เพื่อทำนาย "คะแนนเครดิต"
  (credit_score: ค่าตัวเลขต่อเนื่อง ช่วงมาตรฐาน 300-850 แบบ FICO/VantageScore)
- ** เป็นงานแบบ Regression (ทำนายตัวเลข) ไม่ใช่ Classification แล้ว **
-
- หมายเหตุสำคัญ (โปรดอ่าน):
- ไฟล์ .pkcls ไม่ใช่ไฟล์ scikit-learn ธรรมดา แต่เป็น "โมเดลของ Orange3"
- (Orange.regression.*) ที่ถูก pickle ออกมาจากวิดเจ็ต Save Model ใน Orange
- ดังนั้นแม้จะใช้คำสั่ง joblib.load() ตามที่ขอ แต่เบื้องหลังต้องพึ่งพา
- ไลบรารี Orange3 (แพ็กเกจ PyPI ชื่อ "Orange3") ในการ "แกะ" คลาสของโมเดลออกมา
- มิฉะนั้นจะได้ข้อผิดพลาด "No module named 'Orange'"
- => จึงต้องติดตั้ง Orange3 เพิ่มเติม (ระบุไว้ใน requirements.txt แล้ว)
-
- ข้อดีคือ Orange เก็บ "โครงสร้างข้อมูล (Domain)" ของฟีเจอร์ที่ใช้ตอนฝึกโมเดล
- ไว้ในตัวโมเดลเอง (model.domain.attributes) ทำให้แอปนี้สามารถ "อ่านชื่อ/ชนิด/
- การเข้ารหัส one-hot" ของแต่ละโมเดลได้อัตโนมัติ โดยไม่ต้องเขียน mapping
- แยกสำหรับแต่ละโมเดล (โค้ดส่วน build_input_table() ด้านล่างทำหน้าที่นี้)
 ================================================================================
 """
 
 import os
-
 import joblib
 import numpy as np
 import streamlit as st
@@ -32,26 +17,17 @@ from Orange.data import Domain, Table
 # ------------------------------------------------------------------------------
 # 1) กำหนดค่าคงที่ / โครงสร้างฟีเจอร์ (schema) ตามชุดข้อมูลที่ใช้ฝึกโมเดล
 # ------------------------------------------------------------------------------
-# โฟลเดอร์ที่เก็บไฟล์โมเดล .pkcls (Linear.pkcls) วางไว้ในโฟลเดอร์
-# เดียวกับ app.py นี้ (หรือเปลี่ยนพาธด้านล่างถ้าจะเก็บไว้ในโฟลเดอร์ย่อย)
 MODEL_DIR = "."
-
-# ชื่อคอลัมน์ผลลัพธ์ (target) -- ตอนนี้เป็นตัวเลขต่อเนื่อง (Regression)
-# หมายเหตุ: credit_score เป็น "ตัวแปรตาม" จึงต้อง "ไม่" อยู่ในช่องกรอกข้อมูล (FEATURE_SCHEMA)
 TARGET_NAME = "credit_score"
-
-# ช่วงคะแนนเครดิตมาตรฐาน (FICO / VantageScore) ใช้ตัดค่าที่โมเดลทำนายให้อยู่ในช่วงนี้
-# (Linear Regression ไม่รู้จักขอบเขต จึงอาจทำนายเกินช่วงได้เล็กน้อย)
 SCORE_MIN, SCORE_MAX = 300, 850
 
-# เกณฑ์แบ่งระดับคะแนน: (คะแนนต่ำสุดของระดับ, ชื่อระดับ, คำอธิบาย)
-# เรียงจากสูงไปต่ำ เพื่อให้เช็คจากบนลงล่างแล้วเจอระดับแรกที่เข้าเงื่อนไข
+# เกณฑ์แบ่งระดับคะแนน: ปรับคำอธิบายเน้นย้ำว่าเป็นค่าเชิงสาธิต ไม่ใช่การตัดสินสินเชื่อจริง
 CREDIT_BANDS = [
-    (800, "ดีเยี่ยม (Exceptional)", "ความเสี่ยงต่ำมาก อนุมัติง่ายและได้ดอกเบี้ยต่ำสุด"),
-    (740, "ดีมาก (Very Good)", "ประวัติทางการเงินดี ได้รับข้อเสนอที่ดี"),
-    (670, "ดี (Good)", "เป็นเกณฑ์เฉลี่ยที่สถาบันการเงินยอมรับได้"),
-    (580, "พอใช้ (Fair)", "กลุ่มเสี่ยงกึ่งซับไพรม์ อาจกู้ผ่านยากหรือโดนดอกเบี้ยแพง"),
-    (300, "ต้องปรับปรุง (Poor)", "ขอสินเชื่อหรือทำบัตรเครดิตได้ยากมาก"),
+    (800, "ดีเยี่ยม (Exceptional)", "ระดับคะแนนจำลองกลุ่มความเสี่ยงต่ำมาก (เพื่อการสาธิต)"),
+    (740, "ดีมาก (Very Good)", "ระดับคะแนนจำลองกลุ่มประวัติการเงินดี (เพื่อการสาธิต)"),
+    (670, "ดี (Good)", "ระดับคะแนนจำลองกลุ่มเกณฑ์เฉลี่ย (เพื่อการสาธิต)"),
+    (580, "พอใช้ (Fair)", "ระดับคะแนนจำลองกลุ่มความเสี่ยงปานกลาง (เพื่อการสาธิต)"),
+    (300, "ต้องปรับปรุง (Poor)", "ระดับคะแนนจำลองกลุ่มความเสี่ยงสูง (เพื่อการสาธิต)"),
 ]
 
 
@@ -62,15 +38,7 @@ def credit_band(score: float):
             return name, desc
     return CREDIT_BANDS[-1][1], CREDIT_BANDS[-1][2]
 
-# โครงสร้างฟีเจอร์ต้น (features) ทั้งหมด "ในรูปแบบดิบ" ก่อนเข้ารหัส
-# ตรงกับคอลัมน์ต้นฉบับที่ใช้ตอนฝึกโมเดลใน Orange (ดูจากไฟล์ AI.ows / โมเดล Tree)
-# type:
-#   "number"  -> ใช้ st.number_input (ตัวแปรต่อเนื่อง / ตัวเลข)
-#   "select"  -> ใช้ st.selectbox   (ตัวแปรหมวดหมู่ / ข้อความ)
-# "core": True  -> ฟิลด์สำคัญ แสดงในหน้าฟอร์มหลักเลย
-# "core": False -> ฟิลด์รอง ซ่อนไว้ใต้ "ข้อมูลเพิ่มเติม (ไม่บังคับ)" แบบพับเก็บได้
-#                  (ยังส่งเข้าโมเดลเหมือนเดิมทุกตัว แค่ไม่โชว์เด่นในหน้าแรก
-#                  เพื่อให้ฟอร์มดูกระชับ ปรับ True/False ตรงนี้ได้ตามต้องการ)
+
 FEATURE_SCHEMA = [
     {"key": "monthly_income", "label": "รายได้ต่อเดือน [685–7408]", "type": "number", "min": 0.0, "max": 22224.0, "default": 4008.0, "step": 50.0, "core": True, "training_min": 685.0, "training_max": 7408.0},
     {"key": "monthly_expense_total", "label": "รายจ่ายรวมต่อเดือน [159–5854]", "type": "number", "min": 0.0, "max": 17562.0, "default": 3024.0, "step": 50.0, "core": True, "training_min": 159.0, "training_max": 5854.0},
@@ -98,30 +66,14 @@ FEATURE_SCHEMA = [
 
 
 # ------------------------------------------------------------------------------
-# 2) ฟังก์ชันช่วยเหลือ: ค้นหาไฟล์โมเดล / โหลดโมเดล / เข้ารหัสฟีเจอร์
+# 2) ฟังก์ชันช่วยเหลือ: โหลดโมเดล / เข้ารหัสฟีเจอร์
 # ------------------------------------------------------------------------------
 @st.cache_resource(show_spinner="กำลังโหลดโมเดล...")
 def load_model(path: str):
-    """
-    โหลดไฟล์โมเดล .pkcls ด้วย joblib
-    (ไฟล์นี้เป็นอ็อบเจ็กต์โมเดลของ Orange3 ดังนั้นต้องติดตั้งไลบรารี Orange3
-    ไว้ในสภาพแวดล้อมด้วย ไม่เช่นนั้น joblib.load จะหาโมดูล 'Orange' ไม่เจอ)
-    """
     return joblib.load(path)
 
 
 def build_input_table(model, raw_values: dict) -> Table:
-    """
-    แปลงค่าที่ผู้ใช้กรอก (raw_values) เป็นตาราง Orange ใน "รูปแบบดิบ" ของข้อมูลต้นทาง
-    แล้วให้ Orange ทำขั้นตอนเตรียมข้อมูลเดิมซ้ำเอง (Normalize จากวิดเจ็ต Preprocess,
-    one-hot ของตัวแปรหมวดหมู่ ฯลฯ) ตอนเรียก model(table)
-
-    ทำไมไม่ใส่ค่าเข้า model.domain ตรง ๆ เหมือนเดิม:
-    โมเดลที่ฝึกหลังผ่าน Preprocess > Normalize จะคาดหวังตัวเลขที่ "ถูกปรับสเกลแล้ว"
-    ถ้าส่งค่าดิบ (เช่น รายได้ 30000) เข้าไปตรง ๆ ผลทำนายจะผิดเพี้ยนมาก
-    ขั้นตอน: เดินย้อนตัวแปรใน model.original_domain ไปหา "ตัวแปรต้นทางดิบ"
-    ผ่าน compute_value.variable -> สร้าง Table ด้วยตัวแปรดิบเหล่านั้น
-    """
     raw_vars = []
     for attr in model.original_domain.attributes:
         var = attr
@@ -129,20 +81,16 @@ def build_input_table(model, raw_values: dict) -> Table:
             var = var.compute_value.variable
         raw_vars.append(var)
 
-    # ถ้าโมเดลต้องการฟีเจอร์ที่ฟอร์มไม่มีช่องกรอก ให้แจ้งชื่อชัด ๆ (ไม่เติม 0 เงียบ ๆ)
     missing = [v.name for v in raw_vars if v.name not in raw_values]
     if missing:
         raise ValueError(
             "โมเดลต้องใช้ฟีเจอร์ที่ฟอร์มไม่มีช่องกรอก: " + ", ".join(missing)
-            + " — ให้ตั้งคอลัมน์เหล่านี้เป็น Ignore/Meta ใน Orange แล้วฝึกโมเดลใหม่ "
-            "หรือเพิ่มเข้า FEATURE_SCHEMA ใน app.py"
         )
 
     row = []
     for v in raw_vars:
         value = raw_values[v.name]
         if v.is_discrete:
-            # ตัวแปรหมวดหมู่: เก็บเป็นลำดับ index ของค่าใน v.values (แบบที่ Orange ใช้ภายใน)
             row.append(float(v.values.index(str(value))))
         else:
             row.append(float(value))
@@ -154,8 +102,22 @@ def build_input_table(model, raw_values: dict) -> Table:
 # ------------------------------------------------------------------------------
 st.set_page_config(page_title="AI วิเคราะห์ความสามารถบริหารรายรับรายจ่าย", page_icon="💰")
 
-# หัวข้อหลักของแอปตามที่กำหนด
+# หัวข้อหลักของแอป
 st.title("AI วิเคราะห์ความสามารถบริหารรายรับรายจ่าย")
+
+# 🚨 [เพิ่มจุดที่ 1] แสดงกล่องคำเตือนถาวรเรื่องความแม่นยำและ R2 ตามฟีดแบ็กอาจารย์ (ข้อ 3.15)
+st.warning(
+    """
+    **คำเตือนเรื่องความแม่นยำและการใช้งาน (ข้อความเตือนถาวร):**
+    
+    ตัวแบบนี้ฝึกจากข้อมูลสังเคราะห์และมีค่า **$R^2 = -0.018$** ซึ่ง**ต่ำกว่าการทำนายด้วยค่าเฉลี่ย** 
+    ผลทำนายที่แสดงจึงใกล้เคียงค่าเฉลี่ยสำหรับผู้ใช้เกือบทุกคน (ประมาณ 680 คะแนน) 
+    
+    ระบบนี้จัดทำขึ้นเพื่อ**สาธิตการนำตัวแบบจาก Orange Data Mining มาใช้งานบนเว็บเท่านั้น** 
+    **ไม่สามารถนำไปใช้ประเมิน หรือตัดสินการขออนุมัติสินเชื่อจริงได้**
+    """
+)
+
 st.caption(
     "กรอกข้อมูลทางการเงินของคุณ แล้วให้โมเดล Linear Regression ที่ฝึกไว้ทำนาย "
     "คะแนนเครดิต (credit_score) ในช่วงมาตรฐาน 300-850"
@@ -164,36 +126,17 @@ st.caption(
 # --- 3.1 เลือกโมเดล ---
 st.subheader("1) เลือกโมเดลที่ต้องการใช้ทำนาย")
 
-# รายชื่อโมเดลที่มีมาให้ตายตัว (วางไฟล์ .pkcls ไว้ในโฟลเดอร์เดียวกับ app.py
-# ก่อนรันแอป ไม่ต้องอัปโหลดผ่านหน้าเว็บ)
-# key = ชื่อไฟล์จริงที่ Save Model จาก Orange (ต้องสะกดตรงตัวอักษรใหญ่-เล็ก)
-# value = ชื่อที่แสดงในหน้าจอ
-# อยากเพิ่มโมเดลอื่น (เช่น Ridge) ก็เพิ่มบรรทัดใหม่ตรงนี้ได้เลย
 MODEL_CHOICES = {
+    "linear.pkcls": "Linear Regression",
     "Linear.pkcls": "Linear Regression",
 }
 
-# เลือกเฉพาะไฟล์ที่มีอยู่จริงในโฟลเดอร์ของแอปเท่านั้น (กันแอปพังถ้าไฟล์ยังไม่ครบ)
-# หาไฟล์แบบไม่สนตัวพิมพ์เล็ก/ใหญ่ เพราะ Streamlit Cloud (Linux) แยก Linear.pkcls กับ
-# linear.pkcls เป็นคนละไฟล์ แต่ชื่อที่ Orange Save ออกมาอาจเป็นตัวพิมพ์เล็ก
 files_on_disk = {f.lower(): f for f in os.listdir(MODEL_DIR)}
 available_models = {
-    files_on_disk[fname.lower()]: label          # ใช้ชื่อไฟล์จริงบนดิสก์เป็น key
+    files_on_disk[fname.lower()]: label
     for fname, label in MODEL_CHOICES.items()
     if fname.lower() in files_on_disk
 }
-
-# ถ้าไฟล์โมเดลบางไฟล์ (ไม่ใช่ทั้งหมด) หายไปจากโฟลเดอร์ ให้เตือนผู้ใช้ชัด ๆ
-# ว่าไฟล์ไหนหายไปบ้าง จะได้ไม่งงว่าทำไม dropdown มีไม่ครบ 3 ตัวเลือก
-missing_models = [f for f in MODEL_CHOICES if f.lower() not in files_on_disk]
-if available_models and missing_models:
-    st.info(
-        "พบไฟล์โมเดลไม่ครบ ตอนนี้เจอเฉพาะ: "
-        + ", ".join(available_models.keys())
-        + f" — ยังหาไม่เจอ: {', '.join(missing_models)} "
-        "กรุณาตรวจสอบว่าได้วางไฟล์นี้ไว้ในโฟลเดอร์เดียวกับ app.py "
-        "(หรือ push ขึ้น repo ด้วย ถ้า deploy บน Streamlit Cloud) แล้วรีเฟรชแอป"
-    )
 
 model_path = None
 if available_models:
@@ -205,34 +148,25 @@ if available_models:
     model_path = os.path.join(MODEL_DIR, model_choice)
 else:
     st.warning(
-        "ไม่พบไฟล์โมเดล linear.pkcls — กรุณาวางไฟล์ไว้ในโฟลเดอร์เดียวกับ app.py "
-        "(ถ้า deploy บน Streamlit Cloud ต้อง push ไฟล์ขึ้น GitHub repo ด้วย) แล้วรีเฟรชแอป"
+        "ไม่พบไฟล์โมเดล linear.pkcls — กรุณาวางไฟล์ไว้ในโฟลเดอร์เดียวกับ app.py"
     )
 
 model = None
 if model_path:
     try:
         model = load_model(model_path)
-        st.success(f"โหลดโมเดลสำเร็จ: {os.path.basename(model_path)} ({type(model).__name__})")
-    except ModuleNotFoundError as e:
-        st.error(
-            f"โหลดโมเดลไม่สำเร็จ: ขาดไลบรารีที่จำเป็น ({e}). "
-            "โมเดลนี้ถูกฝึกด้วย Orange3 กรุณาติดตั้ง Orange3 ตาม requirements.txt"
-        )
+        st.success(f"โหลดโมเดลสำเร็จ: {os.path.basename(model_path)}")
     except Exception as e:
         st.error(f"โหลดโมเดลไม่สำเร็จ: {e}")
 
 # --- 3.2 ฟอร์มกรอกข้อมูล ---
 st.subheader("2) กรอกข้อมูลทางการเงินของคุณ")
 st.caption(
-    "ตัวเลขในวงเล็บเหลี่ยม [ต่ำสุด–สูงสุด] คือช่วงที่ \"พบในข้อมูลที่ใช้ฝึกโมเดล\" เท่านั้น "
-    "ไม่ใช่ขอบเขตที่บังคับกรอก — กรอก 0 ได้ถ้าคุณไม่มีรายการนั้นจริง ๆ (เช่น ไม่มีค่าเช่า/ไม่ผ่อนบ้าน) "
-    "แต่ถ้ากรอกค่าที่ห่างจากช่วงนี้มาก ผลทำนายจะแม่นยำน้อยลง เพราะโมเดลไม่เคยเห็นกรณีแบบนั้นตอนฝึก"
+    "ตัวเลขในวงเล็บเหลี่ยม [ต่ำสุด–สูงสุด] คือช่วงที่พบในข้อมูลที่ใช้ฝึกโมเดล"
 )
 
 
 def render_field(feat, container):
-    """วาด widget 1 ช่อง (number_input หรือ selectbox) ตาม schema ของฟีเจอร์นั้น"""
     with container:
         if feat["type"] == "number":
             return st.number_input(
@@ -243,7 +177,7 @@ def render_field(feat, container):
                 step=feat["step"],
                 key=feat["key"],
             )
-        else:  # select
+        else:
             fmt = feat.get("format_map")
             return st.selectbox(
                 feat["label"],
@@ -258,14 +192,11 @@ extra_features = [f for f in FEATURE_SCHEMA if not f.get("core")]
 
 user_inputs = {}
 
-# ฟิลด์หลัก: แสดงตรง ๆ ในหน้าฟอร์ม (เฉพาะตัวที่สำคัญ/จำเป็นต่อการวิเคราะห์จริง ๆ)
 col1, col2 = st.columns(2)
 for i, feat in enumerate(core_features):
     target_col = col1 if i % 2 == 0 else col2
     user_inputs[feat["key"]] = render_field(feat, target_col)
 
-# ฟิลด์รอง: พับเก็บไว้ใต้ expander เพื่อให้ฟอร์มหลักดูกระชับ
-# (ถ้าไม่เปิดดู จะใช้ค่า default ที่ตั้งไว้ใน FEATURE_SCHEMA แทนโดยอัตโนมัติ)
 with st.expander("ข้อมูลเพิ่มเติม (ไม่บังคับปรับ — ถ้าไม่แก้ไขจะใช้ค่าเริ่มต้น)"):
     ecol1, ecol2 = st.columns(2)
     for i, feat in enumerate(extra_features):
@@ -281,8 +212,6 @@ if predict_clicked:
         st.error("กรุณาเลือกโมเดลก่อนกดทำนายผล")
     else:
         try:
-            # เตือนถ้ามีค่าที่กรอก "อยู่นอกช่วงข้อมูลฝึก" อย่างชัดเจน (ไม่ใช่แค่ 0 ที่ต่ำกว่า
-            # ค่าต่ำสุดเล็กน้อย) เพื่อความโปร่งใส ไม่ใช่การห้ามกรอก แค่แจ้งให้รู้
             out_of_range = []
             for feat in FEATURE_SCHEMA:
                 if feat["type"] != "number" or "training_min" not in feat:
@@ -290,41 +219,36 @@ if predict_clicked:
                 v = user_inputs[feat["key"]]
                 lo, hi = feat["training_min"], feat["training_max"]
                 if v < lo or v > hi:
-                    out_of_range.append(f"{feat['label'].split(' [')[0]} = {v:g} (ข้อมูลฝึกอยู่ในช่วง {lo:g}–{hi:g})")
+                    out_of_range.append(f"{feat['label'].split(' [')[0]} = {v:g} (ช่วงฝึก {lo:g}–{hi:g})")
             if out_of_range:
                 st.warning(
-                    "ค่าต่อไปนี้อยู่นอกช่วงที่โมเดลเคยเห็นตอนฝึก ผลทำนายอาจไม่แม่นยำ:\n\n- "
+                    "ค่าต่อไปนี้อยู่นอกช่วงที่โมเดลเคยเห็นตอนฝึก:\n\n- "
                     + "\n- ".join(out_of_range)
                 )
 
-            # แปลงค่าที่กรอกให้ตรงรูปแบบตอนฝึกโมเดล (one-hot ตามความจำเป็น)
             table = build_input_table(model, user_inputs)
-
-            # Regression: model(X) คืน "ตัวเลขต่อเนื่อง" (ไม่มีคลาส/ความน่าจะเป็นแล้ว)
             raw_score = float(model(table)[0])
 
-            # Linear Regression ไม่รู้จักขอบเขต จึงตัดค่าให้อยู่ในช่วงมาตรฐาน 300-850
             score = min(max(raw_score, SCORE_MIN), SCORE_MAX)
             band_name, band_desc = credit_band(score)
 
-            st.success(f"คะแนนเครดิตที่ทำนายได้: **{score:.0f}** คะแนน — ระดับ {band_name}")
-            st.write(band_desc)
+            # 🚨 [เพิ่มจุดที่ 2] แสดงผลทำนายพร้อมคำเตือนกำกับชัดเจน
+            st.success(f"คะแนนเครดิตที่ทำนายได้ (ค่าสาธิต): **{score:.0f}** คะแนน — ระดับ {band_name}")
+            st.info(f"**คำอธิบายระดับ:** {band_desc}")
 
-            # แถบแสดงตำแหน่งของคะแนนในช่วง 300-850
             st.progress((score - SCORE_MIN) / (SCORE_MAX - SCORE_MIN))
             st.caption(f"ช่วงคะแนนมาตรฐาน {SCORE_MIN} - {SCORE_MAX}")
 
-            # แจ้งกรณีค่าที่โมเดลคำนวณได้หลุดช่วง เพื่อความโปร่งใส
-            if raw_score != score:
-                st.caption(
-                    f"(ค่าที่โมเดลคำนวณได้ดิบ ๆ คือ {raw_score:.1f} จึงปรับให้อยู่ในช่วงมาตรฐาน)"
-                )
+            # 🚨 [เพิ่มจุดที่ 3] ย้ำคำเตือนความแม่นยำทุกครั้งเมื่อกดทำนายผลสำเร็จ
+            st.warning(
+                "⚠️ **หมายเหตุซ้ำ:** ตัวแบบมี $R^2 = -0.018$ ผลลัพธ์นี้ใกล้เคียงค่าเฉลี่ย "
+                "และใช้เพื่อการสาธิตระบบเท่านั้น ไม่สามารถใช้อ้างอิงทางกฎหมายหรือการขอสินเชื่อได้"
+            )
+
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดระหว่างการทำนาย: {e}")
 
 st.divider()
 st.caption(
-    "หมายเหตุ: โมเดลนี้ฝึกด้วย Orange Data Mining แล้วบันทึกเป็น .pkcls "
-    "แอปนี้จึงต้องติดตั้งไลบรารี Orange3 เพิ่มเติมนอกเหนือจาก scikit-learn "
-    "เพื่อให้ joblib โหลดโมเดลได้ถูกต้อง"
+    "ระบบต้นแบบวิจัย - พัฒนาโดย Orange Data Mining & Streamlit"
 )
