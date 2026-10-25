@@ -2,7 +2,7 @@
 ================================================================================
  AI วิเคราะห์ความสามารถบริหารรายรับรายจ่าย
 --------------------------------------------------------------------------------
- แอปนี้โหลดโมเดล Linear Regression ที่ฝึกไว้จาก Orange Data Mining (ไฟล์ .pkcls)
+ แอปนี้โหลดตัวแบบ Linear Regression ที่ฝึกไว้จาก Orange Data Mining (ไฟล์ .pkcls)
  แล้วให้ผู้ใช้กรอกข้อมูลทางการเงินของตนเอง เพื่อทำนาย "คะแนนเครดิต"
  (credit_score: ค่าตัวเลขต่อเนื่อง ช่วงมาตรฐาน 300-850 แบบ FICO/VantageScore)
 ================================================================================
@@ -15,7 +15,7 @@ import streamlit as st
 from Orange.data import Domain, Table
 
 # ------------------------------------------------------------------------------
-# 1) กำหนดค่าคงที่ / โครงสร้างฟีเจอร์ (schema) ตามชุดข้อมูลที่ใช้ฝึกโมเดล
+# 1) กำหนดค่าคงที่ / โครงสร้างฟีเจอร์ (schema) ตามชุดข้อมูลที่ใช้ฝึกตัวแบบ
 # ------------------------------------------------------------------------------
 MODEL_DIR = "."
 TARGET_NAME = "credit_score"
@@ -66,9 +66,9 @@ FEATURE_SCHEMA = [
 
 
 # ------------------------------------------------------------------------------
-# 2) ฟังก์ชันช่วยเหลือ: โหลดโมเดล / เข้ารหัสฟีเจอร์
+# 2) ฟังก์ชันช่วยเหลือ: โหลดตัวแบบ / เข้ารหัสฟีเจอร์
 # ------------------------------------------------------------------------------
-@st.cache_resource(show_spinner="กำลังโหลดโมเดล...")
+@st.cache_resource(show_spinner="กำลังโหลดตัวแบบ...")
 def load_model(path: str):
     return joblib.load(path)
 
@@ -84,7 +84,7 @@ def build_input_table(model, raw_values: dict) -> Table:
     missing = [v.name for v in raw_vars if v.name not in raw_values]
     if missing:
         raise ValueError(
-            "โมเดลต้องใช้ฟีเจอร์ที่ฟอร์มไม่มีช่องกรอก: " + ", ".join(missing)
+            "ตัวแบบต้องใช้ฟีเจอร์ที่ฟอร์มไม่มีช่องกรอก: " + ", ".join(missing)
         )
 
     row = []
@@ -119,12 +119,12 @@ st.warning(
 )
 
 st.caption(
-    "กรอกข้อมูลทางการเงินของคุณ แล้วให้โมเดล Linear Regression ที่ฝึกไว้ทำนาย "
+    "กรอกข้อมูลทางการเงินของคุณ แล้วให้ตัวแบบ Linear Regression ที่ฝึกไว้ทำนาย "
     "คะแนนเครดิต (credit_score) ในช่วงมาตรฐาน 300-850"
 )
 
-# --- 3.1 เลือกโมเดล ---
-st.subheader("1) เลือกโมเดลที่ต้องการใช้ทำนาย")
+# --- 3.1 เลือกตัวแบบ ---
+st.subheader("1) เลือกตัวแบบที่ต้องการใช้ทำนาย")
 
 MODEL_CHOICES = {
     "linear.pkcls": "Linear Regression",
@@ -141,28 +141,28 @@ available_models = {
 model_path = None
 if available_models:
     model_choice = st.selectbox(
-        "เลือกโมเดล (.pkcls)",
+        "เลือกตัวแบบ (.pkcls)",
         list(available_models.keys()),
         format_func=lambda fname: f"{available_models[fname]} ({fname})",
     )
     model_path = os.path.join(MODEL_DIR, model_choice)
 else:
     st.warning(
-        "ไม่พบไฟล์โมเดล linear.pkcls — กรุณาวางไฟล์ไว้ในโฟลเดอร์เดียวกับ app.py"
+        "ไม่พบไฟล์ตัวแบบ linear.pkcls — กรุณาวางไฟล์ไว้ในโฟลเดอร์เดียวกับ app.py"
     )
 
 model = None
 if model_path:
     try:
         model = load_model(model_path)
-        st.success(f"โหลดโมเดลสำเร็จ: {os.path.basename(model_path)}")
+        st.success(f"โหลดตัวแบบสำเร็จ: {os.path.basename(model_path)}")
     except Exception as e:
-        st.error(f"โหลดโมเดลไม่สำเร็จ: {e}")
+        st.error(f"โหลดตัวแบบไม่สำเร็จ: {e}")
 
 # --- 3.2 ฟอร์มกรอกข้อมูล ---
 st.subheader("2) กรอกข้อมูลทางการเงินของคุณ")
 st.caption(
-    "ตัวเลขในวงเล็บเหลี่ยม [ต่ำสุด–สูงสุด] คือช่วงที่พบในข้อมูลที่ใช้ฝึกโมเดล"
+    "ตัวเลขในวงเล็บเหลี่ยม [ต่ำสุด–สูงสุด] คือช่วงที่พบในข้อมูลที่ใช้ฝึกตัวแบบ"
 )
 
 
@@ -209,7 +209,7 @@ predict_clicked = st.button("ทำนายผล", type="primary", use_contain
 
 if predict_clicked:
     if model is None:
-        st.error("กรุณาเลือกโมเดลก่อนกดทำนายผล")
+        st.error("กรุณาเลือกตัวแบบก่อนกดทำนายผล")
     else:
         try:
             out_of_range = []
@@ -222,7 +222,7 @@ if predict_clicked:
                     out_of_range.append(f"{feat['label'].split(' [')[0]} = {v:g} (ช่วงฝึก {lo:g}–{hi:g})")
             if out_of_range:
                 st.warning(
-                    "ค่าต่อไปนี้อยู่นอกช่วงที่โมเดลเคยเห็นตอนฝึก:\n\n- "
+                    "ค่าต่อไปนี้อยู่นอกช่วงที่ตัวแบบเคยเห็นตอนฝึก:\n\n- "
                     + "\n- ".join(out_of_range)
                 )
 
